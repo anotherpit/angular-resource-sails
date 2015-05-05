@@ -18,7 +18,9 @@
 			// Set a specific websocket
 			socket: null,
 			// Set a specific origin
-			origin: null
+			origin: null,
+            //Set a specific update timeout in milliseconds
+            updateTimeout: false
 		};
 
 		this.configuration = {};
@@ -422,34 +424,61 @@
 			};
 
 			// Subscribe to changes
-			socket.on(model, function (message) {
-				if (options.verbose) {
-					$log.info('sailsResource received \'' + model + '\' message: ', message);
-				}
-				var messageName = null;
-				$rootScope.$apply(function () {
-					switch (message.verb) {
-						case 'updated':
-							socketUpdateResource(message);
-							messageName = MESSAGES.updated;
-							break;
-						case 'created':
-							socketCreateResource(message);
-							messageName = MESSAGES.created;
-							break;
-						case 'destroyed':
-							socketDeleteResource(message);
-							messageName = MESSAGES.destroyed;
-							break;
-						case 'messaged':
-							messageName = MESSAGES.messaged;
-							break;
-					}
-					$rootScope.$broadcast(messageName, extend({model: model}, message));
-				});
-			});
+            socket.on(model, function (message) {
+                if (options.verbose) {
+                    $log.info('sailsResource received \'' + model + '\' message: ', message);
+                }
+                //prevent too often updates from server causing angular's DoS
+                if ('updated' == message.verb) {
+                    delayedUpdate(message);
+                    return;
+                }
+                var messageName = null;
+                $rootScope.$apply(function () {
+                    switch (message.verb) {
+                        case 'created':
+                            socketCreateResource(message);
+                            messageName = MESSAGES.created;
+                            break;
+                        case 'destroyed':
+                            socketDeleteResource(message);
+                            messageName = MESSAGES.destroyed;
+                            break;
+                        case 'messaged':
+                            messageName = MESSAGES.messaged;
+                            break;
+                    }
 
-			return Resource;
+                    $rootScope.$broadcast(messageName, extend({model: model}, message));
+                });
+            });
+
+            var updateCache = {};
+
+            //an interval applying cached update information
+            if (options.updateTimeout) {
+                var updater = setInterval(function() {
+                    $rootScope.$apply(function () {
+                        angular.forEach(updateCache, function(cachedItem, key) {
+                            socketUpdateResource(cachedItem);
+                            $rootScope.$broadcast(MESSAGES.updated, extend({model: model}, cachedItem));
+                            delete updateCache[key];
+                        });
+                    });
+                }, Math.max(options.updateTimeout, 10));
+            }
+
+            //merge the new information into the cached one (or create new entry in the cache)
+            function delayedUpdate(message) {
+                if (!options.updateTimeout) {
+                    socketUpdateResource(message);
+                    $rootScope.$broadcast(MESSAGES.updated, extend({model: model}, cachedItem));
+                    return;
+                }
+                var cachedItem = updateCache[message.id] || {};
+                extend(cachedItem, message);
+                updateCache[message.id] = cachedItem;
+            }
 		};
 	}
 
