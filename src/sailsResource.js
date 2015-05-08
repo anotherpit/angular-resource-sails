@@ -439,6 +439,7 @@
             //an interval applying cached update information
             if (options.updateTimeout) {
                 var updater = setInterval(function() {
+                    if (!Object.keys(updateCache).length) return;
                     $rootScope.$apply(function () {
                         angular.forEach(updateCache, function(cachedItem, key) {
                             socketUpdateResource(cachedItem);
